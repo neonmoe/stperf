@@ -5,35 +5,40 @@
 //!
 //! # Examples
 //! ```
-//! # #[macro_use] extern crate stprof; fn main() {
-//! for _ in 0..1000 {
+//! # #[macro_use]
+//! # extern crate stprof;
+//! # fn main() {
+//! use std::thread;
+//! use std::time::Duration;
+//!
+//! // An arbitrary "do something" function
+//! let process = || thread::sleep(Duration::from_millis(100));
+//! for _ in 0..1 {
 //!     prof_measure!("main");
-//!     for _ in 0..2 {
-//!         prof_measure!("inner thing");
-//!         for _ in 0..4 {
-//!             prof_measure!("innerer thing");
+//!     for _ in 0..1 {
+//!         prof_measure!("physics simulation");
+//!         for _ in 0..1 {
+//!             prof_measure!("moving things");
+//!             process();
 //!         }
-//!         for _ in 0..3 {
-//!             prof_measure!("another innerer thing");
-//!             for _ in 0..5 {
-//!                 for _ in 0..10 {
-//!                     prof_measure!("the innest thing");
-//!                 }
-//!             }
+//!         for _ in 0..1 {
+//!             prof_measure!("resolving collisions");
+//!             process();
 //!         }
 //!     }
-//!     for _ in 0..20 {
-//!         prof_measure!("inner thing B");
+//!     for _ in 0..1 {
+//!         prof_measure!("rendering");
+//!         process();
 //!     }
 //! }
 //! stprof::print();
+//!
 //! // Prints out:
-//! // ╾─100.0%, 0.543573 ms, 1000 samples          main
-//! //   └─92.8%, 0.252216 ms, 2000 samples         inner thing
-//! //     └─0.5%, 0.000342 ms, 8000 samples        innerer thing
-//! //     └─88.7%, 0.080343 ms, 6000 samples       another innerer thing
-//! //       └─18.8%, 0.000340 ms, 300000 samples   the innest thing
-//! //   └─1.3%, 0.000342 ms, 20000 samples         inner thing
+//! // ╶──┬╼ main                      - 100.0%, 300 ms/loop
+//! //    ├──┬╼ physics simulation     -  66.7%, 200 ms/loop
+//! //    │  ├─╼ moving things         -  50.0%, 100 ms/loop
+//! //    │  └─╼ resolving collisions  -  50.0%, 100 ms/loop
+//! //    └─╼ rendering                -  33.3%, 100 ms/loop
 //! # }
 //! ```
 
