@@ -7,23 +7,23 @@
 //! ```
 //! # #[macro_use] extern crate stprof; fn main() {
 //! for _ in 0..1000 {
-//!     measure!("main");
+//!     prof_measure!("main");
 //!     for _ in 0..2 {
-//!         measure!("inner thing");
+//!         prof_measure!("inner thing");
 //!         for _ in 0..4 {
-//!             measure!("innerer thing");
+//!             prof_measure!("innerer thing");
 //!         }
 //!         for _ in 0..3 {
-//!             measure!("another innerer thing");
+//!             prof_measure!("another innerer thing");
 //!             for _ in 0..5 {
 //!                 for _ in 0..10 {
-//!                     measure!("the innest thing");
+//!                     prof_measure!("the innest thing");
 //!                 }
 //!             }
 //!         }
 //!     }
 //!     for _ in 0..20 {
-//!         measure!("inner thing B");
+//!         prof_measure!("inner thing B");
 //!     }
 //! }
 //! stprof::print();
@@ -42,11 +42,15 @@
 #[macro_use]
 extern crate lazy_static;
 
+pub mod measurement;
+mod formatter;
+pub use formatter::*;
+
 /// Logs the time between this call and the end of the current scope.
 #[macro_export]
-macro_rules! measure {
-    ($s:expr) => (#[allow(unused_variables)] let measurement = stprof::measure($s);)
+macro_rules! prof_measure {
+    ($s: expr) => {
+        #[allow(unused_variables)]
+        let measurement = stprof::measurement::measure($s);
+    };
 }
-
-mod measurement;
-pub use measurement::*;
