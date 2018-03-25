@@ -2,6 +2,14 @@
 name = "stperf"
 version = "0.1.0"
 authors = ["Jens Pitkanen <jens@neon.moe>"]
+description = "Simple profiling utility for single-threaded applications"
+documentation = "https://docs.rs/stperf"
+homepage = "https://github.com/neonmoe/stperf"
+repository = "https://github.com/neonmoe/stperf"
+readme = "README.md"
+keywords = ["profiler", "perf", "performance"]
+categories = ["development-tools::profiling"]
+license = "ISC"
 
 [dependencies]
 lazy_static = "1.0"

@@ -4,7 +4,7 @@
 //! profiling utility for single-threaded applications, inspired by
 //! [`hprof`](https://crates.io/crates/hprof). Mostly intended for
 //! games. Before using this crate, be sure to check the
-//! [Warning](#warning) section.
+//! [Notes](#notes) section.
 //!
 //! # Usage
 //!
@@ -98,8 +98,9 @@
 //! this profiler gives you is the percents, not the absolute timing
 //! value.
 //!
-//! # Warning
+//! # Notes
 //!
+//! ## Performance note
 //! The crate accumulates a pretty large amount of data in a small
 //! amount of time, if you're using it in a realtime application. A
 //! recommended way of displaying and handling the measurement data is
@@ -110,6 +111,11 @@
 //! This way, you'll always have quite a few samples (1 second is a
 //! long amount of time to gather data), and they'll be fresh. And
 //! you'll avoid filling up your ram.
+//!
+//! ## `disabled`-feature
+//! Be sure to enable the `disabled` feature for your release builds,
+//! as this will practically make this crate disappear in place, even
+//! as your code stays the same.
 //!
 //! # Examples
 //! ```
