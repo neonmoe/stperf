@@ -3,14 +3,16 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use measurement_tracker::MeasurementTracker;
+
 lazy_static! {
     pub(crate) static ref MEASUREMENT_STACK: Mutex<Vec<Arc<Mutex<Measurement>>>> =
         Mutex::new(vec![Measurement::new("root".to_string(), 0, None)]);
 }
 
-/// Starts a measurement in the current scope.
-pub fn measure<T: Into<String>>(measurement_name: T) -> MeasurementTracker {
-    let now = Instant::now();
+/// Starts a measurement in the current scope. **Don't use this, use
+/// the [`perf_measure!`](macro.perf_measure.html) macro.**
+pub fn measure<T: Into<String>>(now: Instant, measurement_name: T) -> MeasurementTracker {
     let name = measurement_name.into();
     let mut stack = MEASUREMENT_STACK.lock().unwrap();
     let depth = stack.len();
@@ -26,7 +28,34 @@ pub fn measure<T: Into<String>>(measurement_name: T) -> MeasurementTracker {
         parent.children_names.push(name);
     }
 
-    MeasurementTracker { start_time: now }
+    MeasurementTracker {
+        start_time: now,
+        overhead: Instant::now() - now,
+    }
+}
+
+impl Drop for MeasurementTracker {
+    fn drop(&mut self) {
+        let latter_overhead_start = Instant::now();
+        let mut stack = MEASUREMENT_STACK.lock().unwrap();
+        let measurement = stack.pop().unwrap();
+        let mut measurement = measurement.lock().unwrap();
+        measurement.overhead += self.overhead;
+        measurement.durations.push(Instant::now() - self.start_time);
+        measurement.overhead += Instant::now() - latter_overhead_start;
+    }
+}
+
+/// Resets the measurement data.
+///
+/// Warning: This will wipe all measurements from the memory!
+pub fn reset() {
+    let mut stack = MEASUREMENT_STACK.lock().unwrap();
+    stack.split_off(1);
+    let root = stack.get(0).unwrap();
+    let mut root = root.lock().unwrap();
+    root.children.clear();
+    root.children_names.clear();
 }
 
 /// Returns a `Vec` of all the
@@ -34,7 +63,7 @@ pub fn measure<T: Into<String>>(measurement_name: T) -> MeasurementTracker {
 ///
 /// **Warning**: This function is pretty heavy, especially as the
 /// amount of samples rises, as it clones every one of them.
-pub fn get_measures() -> Vec<Measurement> {
+pub(crate) fn get_measures() -> Vec<Measurement> {
     let stack = MEASUREMENT_STACK.lock().unwrap();
     let root = stack.get(0).unwrap().lock().unwrap();
     root.collect_all_children()
@@ -42,9 +71,10 @@ pub fn get_measures() -> Vec<Measurement> {
 
 /// Represents a scope's running time.
 #[derive(Clone)]
-pub struct Measurement {
+pub(crate) struct Measurement {
     pub(crate) name: String,
     pub(crate) depth: usize,
+    pub(crate) overhead: Duration,
     pub(crate) durations: Vec<Duration>,
     pub(crate) parent: Option<Arc<Mutex<Measurement>>>,
     children: Vec<Arc<Mutex<Measurement>>>,
@@ -60,40 +90,12 @@ impl Measurement {
         Arc::new(Mutex::new(Measurement {
             name,
             depth,
+            overhead: Duration::new(0, 0),
             durations: Vec::new(),
             parent: parent.into(),
             children: Vec::new(),
             children_names: Vec::new(),
         }))
-    }
-
-    /// Returns the name of the measurement (the string passed to the
-    /// `measure!` macro).
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    /// Returns the depth of the measurement. The first `measure!`
-    /// call will have a depth of 1, and each `measure!` inside
-    /// another `measure!` will increment the depth by 1.  Consider
-    /// the following:
-    /// ```
-    /// #[macro_use]
-    /// extern crate stprof;
-    ///
-    /// fn main() {
-    ///     prof_measure!("main");                     /* Depth == 1 */
-    ///     { prof_measure!("inner"); }                /* Depth == 2 */
-    ///     { prof_measure!("another inner"); }        /* Depth == 2 */
-    ///     {
-    ///         prof_measure!("third inner");          /* Depth == 2 */
-    ///         { prof_measure!("even more inner"); }  /* Depth == 3 */
-    ///     }
-    ///     { prof_measure!("last inner"); }           /* Depth == 2 */
-    /// }
-    /// ```
-    pub fn depth(&self) -> usize {
-        self.depth
     }
 
     pub(crate) fn get_ancestor(&self, generation: u32) -> Option<Arc<Mutex<Measurement>>> {
@@ -143,17 +145,33 @@ impl Measurement {
         collection
     }
 
-    pub(crate) fn get_avg_duration_ns(&self) -> Option<u32> {
+    pub(crate) fn get_duration_ns(&self) -> Option<u64> {
         let count = self.durations.len();
         if count == 0 {
             None
         } else {
-            let mut total = 0;
+            let mut total: u64 = 0;
             for duration in &self.durations {
-                total += duration.subsec_nanos();
+                total += duration.subsec_nanos() as u64;
             }
-            Some(total / count as u32)
+            if total < self.get_overhead_ns() {
+                // This should never happen, but technically it's possible.
+                Some(0)
+            } else {
+                Some(total - self.get_overhead_ns())
+            }
         }
+    }
+
+    pub(crate) fn get_overhead_ns(&self) -> u64 {
+        let mut overhead =
+            self.overhead.as_secs() * 1_000_000_000 + self.overhead.subsec_nanos() as u64;
+        for child in &self.children {
+            if let Ok(child) = child.try_lock() {
+                overhead += child.get_overhead_ns();
+            }
+        }
+        overhead
     }
 
     fn get_child(&mut self, name: &str) -> Option<Arc<Mutex<Measurement>>> {
@@ -163,26 +181,8 @@ impl Measurement {
             if child_name == name {
                 drop(child_lock);
                 return Some(child.clone());
-            } else if let Some(result) = child_lock.get_child(name) {
-                drop(child_lock);
-                return Some(result);
             }
         }
         None
-    }
-}
-
-/// Represents a started measurement. When dropped, it will log the
-/// duration into memory.
-pub struct MeasurementTracker {
-    start_time: Instant,
-}
-
-impl Drop for MeasurementTracker {
-    fn drop(&mut self) {
-        let mut stack = MEASUREMENT_STACK.lock().unwrap();
-        let measurement = stack.pop().unwrap();
-        let mut measurement = measurement.lock().unwrap();
-        measurement.durations.push(Instant::now() - self.start_time);
     }
 }

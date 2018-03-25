@@ -1,7 +1,11 @@
 [package]
-name = "stprof"
+name = "stperf"
 version = "0.1.0"
 authors = ["Jens Pitkanen <jens@neon.moe>"]
 
 [dependencies]
 lazy_static = "1.0"
+
+[features]
+default = []
+disabled = []
