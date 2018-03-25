@@ -1,4 +1,4 @@
-# stper
+# stperf
 [![Crates.io](https://img.shields.io/crates/d/stperf.svg)](https://crates.io/crates/minreq)
 [![Documentation](https://docs.rs/stperf/badge.svg)](https://docs.rs/minreq)
 [![CI](https://img.shields.io/travis/neonmoe/stperf/0.1.0.svg)](https://travis-ci.org/neonmoe/minreq)
