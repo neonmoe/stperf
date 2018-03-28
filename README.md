@@ -1,10 +1,10 @@
-# stper
-[![Crates.io](https://img.shields.io/crates/d/stperf.svg)](https://crates.io/crates/minreq)
-[![Documentation](https://docs.rs/stperf/badge.svg)](https://docs.rs/minreq)
-[![CI](https://img.shields.io/travis/neonmoe/stperf/0.1.0.svg)](https://travis-ci.org/neonmoe/minreq)
+# stperf
+[![Crates.io](https://img.shields.io/crates/d/stperf.svg)](https://crates.io/crates/stperf)
+[![Documentation](https://docs.rs/stperf/badge.svg)](https://docs.rs/stperf)
+[![CI](https://img.shields.io/travis/neonmoe/stperf/0.1.0.svg)](https://travis-ci.org/neonmoe/stperf)
 
-stpref (**s**ingle-**t**hreaded **prof**iler) is a very simple
-profiling utility for single-threaded applications, inspired by
+stperf (**s**ingle-**t**hreaded **perf**ormance profiler) is a very
+simple profiling utility for single-threaded applications, inspired by
 [`hprof`](https://crates.io/crates/hprof).
 
 ## Usage
