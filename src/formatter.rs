@@ -50,7 +50,7 @@ pub fn get_formatted_string(ops: FormattingOptions, decimals: usize) -> String {
         let has_child;
         let not_last_leaf;
         if let Some(ref parent) = measurement.parent {
-            let parent = parent.lock().unwrap();
+            let parent = parent.get_mut();
             has_child = measurement.has_children();
             not_last_leaf = !parent.is_last_child_name(&measurement.name, true);
         } else {
@@ -76,9 +76,9 @@ pub fn get_formatted_string(ops: FormattingOptions, decimals: usize) -> String {
                 let generation = (measurement.depth - 1 - d) as u32;
                 if d > 0 && generation >= 1 {
                     if let Some(ancestor) = measurement.get_ancestor(generation) {
-                        let ancestor = ancestor.lock().unwrap();
+                        let ancestor = ancestor.get_mut();
                         let younger_ancestor = measurement.get_ancestor(generation - 1).unwrap();
-                        let younger_ancestor = younger_ancestor.lock().unwrap();
+                        let younger_ancestor = younger_ancestor.get_mut();
                         if !ancestor.is_last_child_name(&younger_ancestor.name, false) {
                             branch_part =
                                 format!("{:width$}", ops.continuing_branch, width = width);
@@ -124,7 +124,7 @@ pub fn get_formatted_string(ops: FormattingOptions, decimals: usize) -> String {
 
             let parent_duration = if measurement.depth > 1 {
                 let parent = measurement.parent.unwrap();
-                let parent = parent.lock().unwrap();
+                let parent = parent.get_mut();
                 match parent.get_duration_ns() {
                     Some(duration) => duration, // Parent has duration, use it
                     None => duration,           // Parent has no duration, use own

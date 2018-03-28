@@ -1,12 +1,12 @@
 //! The backend for the measurements.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, TryLockResult};
 use std::time::{Duration, Instant};
 
 use measurement_tracker::MeasurementTracker;
 
 lazy_static! {
-    pub(crate) static ref MEASUREMENT_STACK: Mutex<Vec<Arc<Mutex<Measurement>>>> =
+    pub(crate) static ref MEASUREMENT_STACK: Mutex<Vec<MeasurementRef>> =
         Mutex::new(vec![Measurement::new("root".to_string(), 0, None)]);
 }
 
@@ -18,10 +18,19 @@ pub fn measure<T: Into<String>>(now: Instant, measurement_name: T) -> Measuremen
     let depth = stack.len();
 
     let parent = stack.get(depth - 1).unwrap().clone();
-    let measurement = Measurement::new(name.clone(), depth, parent.clone());
-    let mut parent = parent.lock().unwrap();
-    if let Some(measurement) = parent.get_child(&name) {
-        stack.push(measurement.clone());
+    let measurement = Measurement::new(
+        name.clone(),
+        depth,
+        Some(MeasurementRef::from(parent.clone())),
+    );
+
+    let mut parent = parent.get_mut();
+    if let Some(existing_measurement) = parent.get_child(&name) {
+        {
+            let mut measurement = existing_measurement.get_mut();
+            measurement.measuring_currently = true;
+        }
+        stack.push(existing_measurement.clone());
     } else {
         stack.push(measurement.clone());
         parent.children.push(measurement);
@@ -38,8 +47,9 @@ impl Drop for MeasurementTracker {
     fn drop(&mut self) {
         let latter_overhead_start = Instant::now();
         let mut stack = MEASUREMENT_STACK.lock().unwrap();
-        let measurement = stack.pop().unwrap();
-        let mut measurement = measurement.lock().unwrap();
+        let latest_measurement = stack.pop().unwrap();
+        let mut measurement = latest_measurement.get_mut();
+        measurement.measuring_currently = false;
         measurement.overhead += self.overhead;
         measurement.durations.push(Instant::now() - self.start_time);
         measurement.overhead += Instant::now() - latter_overhead_start;
@@ -48,14 +58,20 @@ impl Drop for MeasurementTracker {
 
 /// Resets the measurement data.
 ///
-/// Warning: This will wipe all measurements from the memory!
+/// **Warning**: This will wipe all measurements from the memory!
 pub fn reset() {
-    let mut stack = MEASUREMENT_STACK.lock().unwrap();
-    stack.split_off(1);
-    let root = stack.get(0).unwrap();
-    let mut root = root.lock().unwrap();
-    root.children.clear();
-    root.children_names.clear();
+    let stack = MEASUREMENT_STACK.lock().unwrap();
+    let root = stack.get(0).unwrap().get_mut();
+    let children = root.collect_all_children_arc();
+
+    for i in 0..children.len() {
+        let mut child = children[i].get_mut();
+        if !child.measuring_currently {
+            child.remove_while_locked();
+        } else {
+            child.clear_durations();
+        }
+    }
 }
 
 /// Returns a `Vec` of all the
@@ -65,29 +81,50 @@ pub fn reset() {
 /// amount of samples rises, as it clones every one of them.
 pub(crate) fn get_measures() -> Vec<Measurement> {
     let stack = MEASUREMENT_STACK.lock().unwrap();
-    let root = stack.get(0).unwrap().lock().unwrap();
+    let root = stack.get(0).unwrap().get_mut();
     root.collect_all_children()
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct MeasurementRef {
+    reference: Arc<Mutex<Measurement>>,
+}
+
+impl MeasurementRef {
+    pub(crate) fn get_mut(&self) -> MutexGuard<Measurement> {
+        match self.reference.try_lock() {
+            Ok(measurement) => measurement,
+            Err(err) => panic!("Failed to lock measurement! {}", err),
+        }
+    }
+
+    fn try_get_mut(&self) -> TryLockResult<MutexGuard<Measurement>> {
+        self.reference.try_lock()
+    }
+}
+
+impl From<Arc<Mutex<Measurement>>> for MeasurementRef {
+    fn from(t: Arc<Mutex<Measurement>>) -> Self {
+        MeasurementRef { reference: t }
+    }
+}
+
 /// Represents a scope's running time.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct Measurement {
     pub(crate) name: String,
     pub(crate) depth: usize,
     pub(crate) overhead: Duration,
     pub(crate) durations: Vec<Duration>,
-    pub(crate) parent: Option<Arc<Mutex<Measurement>>>,
-    children: Vec<Arc<Mutex<Measurement>>>,
+    pub(crate) parent: Option<MeasurementRef>,
+    children: Vec<MeasurementRef>,
     children_names: Vec<String>,
+    measuring_currently: bool,
 }
 
 impl Measurement {
-    fn new<T: Into<Option<Arc<Mutex<Measurement>>>>>(
-        name: String,
-        depth: usize,
-        parent: T,
-    ) -> Arc<Mutex<Measurement>> {
-        Arc::new(Mutex::new(Measurement {
+    fn new(name: String, depth: usize, parent: Option<MeasurementRef>) -> MeasurementRef {
+        MeasurementRef::from(Arc::new(Mutex::new(Measurement {
             name,
             depth,
             overhead: Duration::new(0, 0),
@@ -95,19 +132,20 @@ impl Measurement {
             parent: parent.into(),
             children: Vec::new(),
             children_names: Vec::new(),
-        }))
+            measuring_currently: true,
+        })))
     }
 
-    pub(crate) fn get_ancestor(&self, generation: u32) -> Option<Arc<Mutex<Measurement>>> {
+    pub(crate) fn get_ancestor(&self, generation: u32) -> Option<MeasurementRef> {
         if generation == 0 {
             if let Some(ref parent) = self.parent {
-                Some(parent.clone())
+                Some(MeasurementRef::from(parent.clone()))
             } else {
                 None
             }
         } else {
             if let Some(ref parent) = self.parent {
-                let parent = parent.lock().unwrap();
+                let parent = parent.get_mut();
                 parent.get_ancestor(generation - 1)
             } else {
                 None
@@ -140,7 +178,7 @@ impl Measurement {
         let mut collection = Vec::new();
         collection.push(self.clone());
         for child in &self.children {
-            collection.append(&mut child.lock().unwrap().collect_all_children());
+            collection.append(&mut child.get_mut().collect_all_children());
         }
         collection
     }
@@ -167,22 +205,56 @@ impl Measurement {
         let mut overhead =
             self.overhead.as_secs() * 1_000_000_000 + self.overhead.subsec_nanos() as u64;
         for child in &self.children {
-            if let Ok(child) = child.try_lock() {
+            if let Ok(child) = child.try_get_mut() {
                 overhead += child.get_overhead_ns();
             }
         }
         overhead
     }
 
-    fn get_child(&mut self, name: &str) -> Option<Arc<Mutex<Measurement>>> {
+    fn collect_all_children_arc(&self) -> Vec<MeasurementRef> {
+        let mut collection = Vec::new();
         for child in &self.children {
-            let mut child_lock = child.lock().unwrap();
+            collection.push(child.clone());
+            let child = child.get_mut();
+            collection.append(&mut child.collect_all_children_arc());
+        }
+        collection
+    }
+
+    fn get_child(&mut self, name: &str) -> Option<MeasurementRef> {
+        for child in &self.children {
+            let mut child_lock = child.get_mut();
             let child_name = child_lock.name.clone();
             if child_name == name {
-                drop(child_lock);
                 return Some(child.clone());
             }
         }
         None
+    }
+
+    fn remove_locked_child(&mut self) {
+        let children = &mut self.children;
+        let mut remove_index = None;
+        for i in 0..children.len() {
+            if let Err(_) = children[i].try_get_mut() {
+                remove_index = Some(i);
+                break;
+            }
+        }
+        if let Some(i) = remove_index {
+            children.remove(i);
+        }
+    }
+
+    fn remove_while_locked(&self) {
+        if let Some(ref parent) = self.parent {
+            let mut parent = parent.get_mut();
+            parent.remove_locked_child();
+        }
+    }
+
+    fn clear_durations(&mut self) {
+        self.durations.clear();
     }
 }
