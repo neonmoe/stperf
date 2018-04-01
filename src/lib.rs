@@ -178,8 +178,9 @@ pub use disabled::*;
 macro_rules! perf_measure {
     ($s: expr) => {
         use std::time::Instant;
+        use stperf::measure;
         #[allow(unused_variables)]
-        let measurement = stperf::measure(Instant::now(), $s);
+        let measurement = measure(Instant::now(), $s);
     };
 }
 
