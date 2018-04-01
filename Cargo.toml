@@ -1,6 +1,6 @@
 [package]
 name = "stperf"
-version = "0.1.3"
+version = "0.1.4"
 authors = ["Jens Pitkanen <jens@neon.moe>"]
 description = "Simple profiling utility for single-threaded applications"
 documentation = "https://docs.rs/stperf"
@@ -12,7 +12,7 @@ categories = ["development-tools::profiling"]
 license = "ISC"
 
 [badges]
-travis-ci = { repository = "neonmoe/stperf", branch = "0.1.3" }
+travis-ci = { repository = "neonmoe/stperf", branch = "0.1.4" }
 maintenance = { status = "passively-maintained" }
 
 [dependencies]

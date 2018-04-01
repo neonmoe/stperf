@@ -256,5 +256,6 @@ impl Measurement {
 
     fn clear_durations(&mut self) {
         self.durations.clear();
+        self.overhead = Duration::new(0, 0);
     }
 }
